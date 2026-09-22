@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Neon Snake · 霓虹贪吃蛇</title>
+<style>
+  :root {
+    --bg: #05060f;
+    --grid: #10152b;
+    --snake: #39ff14;
+    --snake-head: #b6ff7a;
+    --food: #ff2d75;
+    --text: #d7e0ff;
+    --accent: #00e5ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: radial-gradient(circle at 50% 0%, #0b1030 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .wrap {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 16px;
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(20px, 5vw, 32px);
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--accent);
+    text-shadow: 0 0 12px var(--accent), 0 0 30px rgba(0, 229, 255, 0.4);
+  }
+  .hud {
+    width: 100%;
+    max-width: 480px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 15px;
+    letter-spacing: 1px;
+  }
+  .hud span b { color: var(--snake); text-shadow: 0 0 8px var(--snake); }
+  .stage { position: relative; }
+  canvas {
+    display: block;
+    width: 100%;
+    max-width: 480px;
+    border-radius: 14px;
+    background: var(--bg);
+    box-shadow: 0 0 0 2px #1b2447, 0 0 40px rgba(0, 229, 255, 0.15);
+    touch-action: none;
+  }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    border-radius: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: rgba(5, 6, 15, 0.82);
+    backdrop-filter: blur(3px);
+    text-align: center;
+    padding: 20px;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h2 { margin: 0; font-size: clamp(22px, 6vw, 34px); color: var(--food); text-shadow: 0 0 14px var(--food); }
+  .overlay p { margin: 0; font-size: 14px; color: #8fa0d6; line-height: 1.7; }
+  button {
+    font: inherit;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 12px 28px;
+    border: none;
+    border-radius: 999px;
+    cursor: pointer;
+    color: #04120b;
+    background: linear-gradient(135deg, var(--snake), var(--accent));
+    box-shadow: 0 0 20px rgba(57, 255, 20, 0.45);
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+  }
+  button:hover { transform: translateY(-2px); box-shadow: 0 0 28px rgba(57, 255, 20, 0.7); }
+  button:active { transform: scale(0.96); }
+  .kbd {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 5px;
+    background: #131a38;
+    border: 1px solid #26315e;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+  }
+  .dpad { display: none; gap: 8px; }
+  @media (pointer: coarse) {
+    .dpad { display: grid; grid-template-columns: repeat(3, 56px); grid-template-rows: repeat(2, 56px); }
+    .dpad button { all: unset; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; border-radius: 14px; background: #111838; color: var(--accent); font-size: 22px; box-shadow: 0 0 0 1px #26315e; }
+    .dpad .up { grid-column: 2; grid-row: 1; }
+    .dpad .left { grid-column: 1; grid-row: 2; }
+    .dpad .down { grid-column: 2; grid-row: 2; }
+    .dpad .right { grid-column: 3; grid-row: 2; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Neon Snake</h1>
+  <div class="hud">
+    <span>得分 <b id="score">0</b></span>
+    <span>最高 <b id="best">0</b></span>
+  </div>
+  <div class="stage">
+    <canvas id="game" width="480" height="480"></canvas>
+    <div class="overlay" id="overlay">
+      <h2 id="overlayTitle">准备开始？</h2>
+      <p id="overlayText">
+        方向键 / <span class="kbd">W</span><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span> 移动<br />
+        手机可滑动屏幕或用方向键
+      </p>
+      <button id="startBtn">开始游戏</button>
+    </div>
+  </div>
+  <div class="dpad">
+    <button class="up" data-dir="up">▲</button>
+    <button class="left" data-dir="left">◀</button>
+    <button class="down" data-dir="down">▼</button>
+    <button class="right" data-dir="right">▶</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  const scoreEl = document.getElementById("score");
+  const bestEl = document.getElementById("best");
+  const overlay = document.getElementById("overlay");
+  const overlayTitle = document.getElementById("overlayTitle");
+  const overlayText = document.getElementById("overlayText");
+  const startBtn = document.getElementById("startBtn");
+
+  const COLS = 24;
+  const ROWS = 24;
+  const CELL = canvas.width / COLS;
+  const BEST_KEY = "neon-snake-best";
+
+  let snake, dir, nextDir, food, score, best, timer, speed, running, lastTime, acc;
+
+  best = Number(localStorage.getItem(BEST_KEY) || 0);
+  bestEl.textContent = best;
+
+  function reset() {
+    snake = [{ x: 8, y: 12 }, { x: 7, y: 12 }, { x: 6, y: 12 }];
+    dir = { x: 1, y: 0 };
+    nextDir = { x: 1, y: 0 };
+    score = 0;
+    speed = 140;
+    acc = 0;
+    running = true;
+    lastTime = performance.now();
+    placeFood();
+    scoreEl.textContent = score;
+    overlay.classList.add("hidden");
+  }
+
+  function placeFood() {
+    const free = [];
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        if (!snake.some(s => s.x === x && s.y === y)) free.push({ x, y });
+      }
+    }
+    food = free[Math.floor(Math.random() * free.length)] || { x: 0, y: 0 };
+  }
+
+  function step() {
+    dir = nextDir;
+    const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+
+    if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) return gameOver();
+    if (snake.some((s, i) => i < snake.length - 1 && s.x === head.x && s.y === head.y)) return gameOver();
+
+    snake.unshift(head);
+
+    if (head.x === food.x && head.y === food.y) {
+      score += 10;
+      scoreEl.textContent = score;
+      if (score % 50 === 0 && speed > 60) speed -= 8;
+      placeFood();
+    } else {
+      snake.pop();
+    }
+  }
+
+  function gameOver() {
+    running = false;
+    cancelAnimationFrame(timer);
+    if (score > best) {
+      best = score;
+      localStorage.setItem(BEST_KEY, best);
+      bestEl.textContent = best;
+    }
+    overlayTitle.textContent = "游戏结束";
+    overlayText.innerHTML = `本局得分 <b style="color:var(--snake)">${score}</b><br />最高纪录 ${best}`;
+    startBtn.textContent = "再来一局";
+    overlay.classList.remove("hidden");
+  }
+
+  function drawBoard() {
+    ctx.fillStyle = "#05060f";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = "#10152b";
+    ctx.lineWidth = 1;
+    for (let i = 1; i < COLS; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * CELL, 0);
+      ctx.lineTo(i * CELL, canvas.height);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, i * CELL);
+      ctx.lineTo(canvas.width, i * CELL);
+      ctx.stroke();
+    }
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function draw() {
+    drawBoard();
+
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 200);
+    const fx = food.x * CELL + CELL / 2;
+    const fy = food.y * CELL + CELL / 2;
+    ctx.save();
+    ctx.shadowColor = "#ff2d75";
+    ctx.shadowBlur = 16 + pulse * 10;
+    ctx.fillStyle = "#ff2d75";
+    ctx.beginPath();
+    ctx.arc(fx, fy, CELL * 0.34, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    for (let i = snake.length - 1; i >= 0; i--) {
+      const s = snake[i];
+      const t = i / Math.max(snake.length - 1, 1);
+      ctx.save();
+      ctx.shadowColor = "#39ff14";
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = i === 0 ? "#b6ff7a" : `rgba(57, 255, 20, ${1 - t * 0.6})`;
+      roundRect(s.x * CELL + 2, s.y * CELL + 2, CELL - 4, CELL - 4, i === 0 ? 7 : 5);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function loop(now) {
+    if (!running) return;
+    const dt = now - lastTime;
+    lastTime = now;
+    acc += dt;
+    if (acc >= speed) {
+      acc = 0;
+      step();
+    }
+    draw();
+    timer = requestAnimationFrame(loop);
+  }
+
+  function setDir(name) {
+    const map = { up: { x: 0, y: -1 }, down: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } };
+    const d = map[name];
+    if (!d || !running) return;
+    if (d.x === -dir.x && d.y === -dir.y) return;
+    nextDir = d;
+  }
+
+  function start() {
+    cancelAnimationFrame(timer);
+    reset();
+    timer = requestAnimationFrame(loop);
+  }
+
+  const keys = {
+    ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
+    w: "up", s: "down", a: "left", d: "right",
+    W: "up", S: "down", A: "left", D: "right"
+  };
+
+  window.addEventListener("keydown", e => {
+    if (keys[e.key]) { e.preventDefault(); setDir(keys[e.key]); }
+    if (e.key === " " && !running) { e.preventDefault(); start(); }
+  });
+
+  document.querySelectorAll(".dpad button").forEach(btn => {
+    btn.addEventListener("click", () => setDir(btn.dataset.dir));
+  });
+
+  let touchStart = null;
+  canvas.addEventListener("touchstart", e => {
+    touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }, { passive: true });
+  canvas.addEventListener("touchend", e => {
+    if (!touchStart) return;
+    const dx = e.changedTouches[0].clientX - touchStart.x;
+    const dy = e.changedTouches[0].clientY - touchStart.y;
+    if (Math.hypot(dx, dy) < 24) return;
+    setDir(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up"));
+    touchStart = null;
+  }, { passive: true });
+
+  startBtn.addEventListener("click", start);
+
+  drawBoard();
+})();
+</script>
+</body>
+</html>
